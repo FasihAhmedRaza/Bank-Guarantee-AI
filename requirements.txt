@@ -3,4 +3,3 @@ google-genai
 pymupdf
 pillow
 python-docx
-docx2pdf

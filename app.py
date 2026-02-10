@@ -273,21 +273,28 @@ def fill_word_template(data: dict) -> bytes:
 
 
 def convert_docx_to_pdf(docx_bytes: bytes) -> Optional[bytes]:
-    """Convert .docx bytes to PDF using MS Word COM automation (Windows)."""
-    try:
-        import docx2pdf
-    except ImportError:
+    """Convert .docx bytes to PDF using LibreOffice (works on Linux/Streamlit Cloud)."""
+    import subprocess
+    import shutil
+
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if not soffice:
         return None
 
     with tempfile.TemporaryDirectory() as tmpdir:
         docx_path = os.path.join(tmpdir, "letter.docx")
-        pdf_path = os.path.join(tmpdir, "letter.pdf")
         with open(docx_path, "wb") as f:
             f.write(docx_bytes)
         try:
-            docx2pdf.convert(docx_path, pdf_path)
+            subprocess.run(
+                [soffice, "--headless", "--convert-to", "pdf", "--outdir", tmpdir, docx_path],
+                timeout=60,
+                check=True,
+                capture_output=True,
+            )
         except Exception:
             return None
+        pdf_path = os.path.join(tmpdir, "letter.pdf")
         if not os.path.exists(pdf_path):
             return None
         with open(pdf_path, "rb") as f:
@@ -499,7 +506,7 @@ if generate_clicked:
                 )
 
             with dl_cols[1]:
-                with st.spinner("Converting to PDF "):
+                with st.spinner("Converting to PDF..."):
                     pdf_bytes = convert_docx_to_pdf(docx_bytes)
                 if pdf_bytes:
                     st.download_button(
@@ -509,8 +516,4 @@ if generate_clicked:
                         mime="application/pdf",
                     )
                 else:
-                    _show_status(
-                        "info",
-                        "PDF conversion requires Microsoft Word installed. "
-                        "Download the Word file and save as PDF from Word.",
-                    )
+                    st.warning("PDF conversion failed. Please download the Word file instead.")
