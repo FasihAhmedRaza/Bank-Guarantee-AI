@@ -19,7 +19,6 @@ st.title("\U0001f3e6 Bank Guarantee AI")
 st.write("Enter details strictly based on the Bank Guarantee document")
 
 MODELS_FALLBACK = [
-    "gemini-2.5-flash-preview",
     "gemini-2.0-flash",
 ]
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data")
