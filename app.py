@@ -18,6 +18,13 @@ st.set_page_config(page_title="Bank Guarantee AI", layout="centered")
 st.title("\U0001f3e6 Bank Guarantee AI")
 st.write("Enter details strictly based on the Bank Guarantee document")
 
+SHOW_STATUS = bool(st.secrets.get("SHOW_STATUS", False))
+
+
+def _show_status(kind: str, message: str) -> None:
+    if SHOW_STATUS:
+        getattr(st, kind)(message)
+
 MODELS_FALLBACK = [
     "gemini-2.5-flash-lite",
     "gemini-2.0-flash-lite",
@@ -314,7 +321,7 @@ st.session_state.setdefault("last_extracted_hash", None)
 
 images: List[Image.Image] = []
 if uploaded_file:
-    st.success("File uploaded successfully")
+    _show_status("success", "File uploaded successfully")
     file_bytes = uploaded_file.read()
     file_hash = hashlib.sha256(file_bytes).hexdigest()
     if uploaded_file.type == "application/pdf":
@@ -329,7 +336,7 @@ if uploaded_file:
             st.error("Image processing failed: " + str(exc))
 
     if images:
-        st.caption("Previewing " + str(len(images)) + " page(s)")
+        _show_status("caption", "Previewing " + str(len(images)) + " page(s)")
         st.image(images, width=400)
 
         should_auto_extract = (
@@ -408,15 +415,16 @@ if extract_clicked:
             st.session_state["company_name_ar"] = result.get("company_name_ar") or ""
             st.session_state["guarantee_type_ar"] = result.get("guarantee_type_ar") or ""
 
-            st.success("Fields extracted. Please review and edit if needed.")
-            st.subheader("\U0001f4d1 Extracted Guarantee Information")
-            st.write("**Guarantee Type:** " + guarantee_type)
-            st.write("**Date:** " + st.session_state["date"])
-            st.write("**Bank Name:** " + st.session_state["bank_name"])
-            st.write("**Guarantee No:** " + st.session_state["guarantee_number"])
-            st.write("**Date of Guarantee:** " + st.session_state["guarantee_date"])
-            st.write("**Amount:** " + st.session_state["amount"])
-            st.write("**Company Name:** " + st.session_state["company_name"])
+            _show_status("success", "Fields extracted. Please review and edit if needed.")
+            if SHOW_STATUS:
+                st.subheader("\U0001f4d1 Extracted Guarantee Information")
+                st.write("**Guarantee Type:** " + guarantee_type)
+                st.write("**Date:** " + st.session_state["date"])
+                st.write("**Bank Name:** " + st.session_state["bank_name"])
+                st.write("**Guarantee No:** " + st.session_state["guarantee_number"])
+                st.write("**Date of Guarantee:** " + st.session_state["guarantee_date"])
+                st.write("**Amount:** " + st.session_state["amount"])
+                st.write("**Company Name:** " + st.session_state["company_name"])
 
 if generate_clicked:
     if not all(
@@ -446,7 +454,7 @@ if generate_clicked:
             }
         )
 
-        st.success("Letter generated successfully")
+        _show_status("success", "Letter generated successfully")
 
         # Split into English and Arabic parts
         parts = letter.split("=" * 60)
@@ -475,7 +483,7 @@ if generate_clicked:
         }
 
         if not os.path.exists(TEMPLATE_CONTRACT):
-            st.warning("Word template not found in Data folder.")
+            _show_status("warning", "Word template not found in Data folder.")
         else:
             with st.spinner("Generating Word document from template..."):
                 docx_bytes = fill_word_template(template_data)
@@ -491,7 +499,7 @@ if generate_clicked:
                 )
 
             with dl_cols[1]:
-                with st.spinner("Converting to PDF (requires MS Word)..."):
+                with st.spinner("Converting to PDF "):
                     pdf_bytes = convert_docx_to_pdf(docx_bytes)
                 if pdf_bytes:
                     st.download_button(
@@ -501,7 +509,8 @@ if generate_clicked:
                         mime="application/pdf",
                     )
                 else:
-                    st.info(
+                    _show_status(
+                        "info",
                         "PDF conversion requires Microsoft Word installed. "
-                        "Download the Word file and save as PDF from Word."
+                        "Download the Word file and save as PDF from Word.",
                     )
