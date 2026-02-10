@@ -1,14 +1,10 @@
 import hashlib
 import io
 import json
-import os
-import tempfile
-import time
 from typing import List, Optional
 
 import fitz  # PyMuPDF
 import streamlit as st
-from docx import Document as DocxDocument
 from PIL import Image
 from google import genai
 from google.genai import types
@@ -18,12 +14,7 @@ st.set_page_config(page_title="Bank Guarantee AI", layout="centered")
 st.title("\U0001f3e6 Bank Guarantee AI")
 st.write("Enter details strictly based on the Bank Guarantee document")
 
-MODELS_FALLBACK = [
-    "gemini-2.5-flash-preview",
-    "gemini-2.0-flash",
-]
-TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data")
-TEMPLATE_CONTRACT = os.path.join(TEMPLATE_DIR, "رد ضمان عقد.docx")
+DEFAULT_MODEL = "gemini-3-flash-preview"
 FIELD_KEYS = [
     "date",
     "bank_name",
@@ -94,30 +85,11 @@ def extract_fields_from_images(
             types.Part.from_bytes(data=img_bytes, mime_type="image/png")
         )
 
-    for model_idx, current_model in enumerate(MODELS_FALLBACK if model_name is None else [model_name]):
-        max_retries = 2
-        for attempt in range(max_retries):
-            try:
-                response = client.models.generate_content(
-                    model=current_model,
-                    contents=contents,
-                )
-                return _extract_json(response.text)
-            except Exception as exc:
-                err_str = str(exc)
-                is_unavailable = "503" in err_str or "UNAVAILABLE" in err_str or "overloaded" in err_str.lower()
-                # Retry same model
-                if is_unavailable and attempt < max_retries - 1:
-                    wait = (attempt + 1) * 3
-                    st.warning(f"{current_model} busy, retrying in {wait}s...")
-                    time.sleep(wait)
-                # Fallback to next model
-                elif is_unavailable and model_idx < len(MODELS_FALLBACK) - 1:
-                    st.warning(f"{current_model} unavailable, switching to {MODELS_FALLBACK[model_idx + 1]}...")
-                    break
-                else:
-                    raise
-    return None
+    response = client.models.generate_content(
+        model=model_name,
+        contents=contents,
+    )
+    return _extract_json(response.text)
 
 
 def build_letter_template(data: dict) -> str:
@@ -190,88 +162,6 @@ def _build_arabic_letter(guarantee_type, date, bank_name, guarantee_number, guar
     return header + body + footer
 
 
-# ---- Word Template Fill & PDF Conversion ----
-
-def _set_cell_content(table, row_idx, col_idx, new_text):
-    """Replace cell text while preserving the first run's formatting."""
-    cell = table.cell(row_idx, col_idx)
-    target_para = None
-    for para in cell.paragraphs:
-        if para.runs:
-            target_para = para
-            break
-    if not target_para:
-        return
-    target_para.runs[0].text = new_text
-    for run in target_para.runs[1:]:
-        run.text = ""
-
-
-def fill_word_template(data: dict) -> bytes:
-    """Open the Word template, inject extracted data, return .docx bytes."""
-    doc = DocxDocument(TEMPLATE_CONTRACT)
-    table = doc.tables[0]
-
-    date = data.get("date", "")
-    bank_name = data.get("bank_name", "")
-    bank_name_ar = data.get("bank_name_ar", "") or bank_name
-    guarantee_number = data.get("guarantee_number", "")
-    guarantee_date = data.get("guarantee_date", "")
-    amount = data.get("amount", "")
-    company_name = data.get("company_name", "")
-    company_name_ar = data.get("company_name_ar", "") or company_name
-
-    # Row 0: Date
-    _set_cell_content(table, 0, 0, "\u0627\u0644\u062a\u0627\u0631\u064a\u062e: " + date)
-    _set_cell_content(table, 0, 1, "Date: " + date)
-
-    # Row 2: Bank name
-    _set_cell_content(table, 2, 0, "\u0627\u0644\u0633\u0627\u062f\u0629/ " + bank_name_ar)
-    _set_cell_content(table, 2, 1, "M/s. " + bank_name)
-
-    # Row 7: Subject / Guarantee number
-    _set_cell_content(table, 7, 0, "\u0627\u0644\u0645\u0648\u0636\u0648\u0639: \u0636\u0645\u0627\u0646 \u0628\u0646\u0643\u064a \u0631\u0642\u0645: " + guarantee_number)
-    _set_cell_content(table, 7, 1, "Subject: Bank Guarantee No. " + guarantee_number)
-
-    # Row 8: Guarantee date
-    _set_cell_content(table, 8, 0, "\u0628\u062a\u0627\u0631\u064a\u062e: " + guarantee_date)
-    _set_cell_content(table, 8, 1, "Dated: " + guarantee_date)
-
-    # Row 9: Amount
-    _set_cell_content(table, 9, 0, "\u0628\u0642\u064a\u0645\u0629: " + amount)
-    _set_cell_content(table, 9, 1, "For AED " + amount)
-
-    # Row 10: Company name
-    _set_cell_content(table, 10, 0, "\u0627\u0633\u0645 \u0627\u0644\u062c\u0647\u0629: " + company_name_ar)
-    _set_cell_content(table, 10, 1, "M/s. " + company_name)
-
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
-
-
-def convert_docx_to_pdf(docx_bytes: bytes) -> Optional[bytes]:
-    """Convert .docx bytes to PDF using MS Word COM automation (Windows)."""
-    try:
-        import docx2pdf
-    except ImportError:
-        return None
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        docx_path = os.path.join(tmpdir, "letter.docx")
-        pdf_path = os.path.join(tmpdir, "letter.pdf")
-        with open(docx_path, "wb") as f:
-            f.write(docx_bytes)
-        try:
-            docx2pdf.convert(docx_path, pdf_path)
-        except Exception:
-            return None
-        if not os.path.exists(pdf_path):
-            return None
-        with open(pdf_path, "rb") as f:
-            return f.read()
-
-
 # --- Guarantee Type ---
 guarantee_type = st.selectbox(
     "Select Guarantee Type",
@@ -327,7 +217,7 @@ if uploaded_file:
             with st.spinner("Extracting fields with Gemini..."):
                 try:
                     result = extract_fields_from_images(
-                        client, images, guarantee_type, None
+                        client, images, guarantee_type, DEFAULT_MODEL
                     )
                 except Exception as exc:
                     result = None
@@ -376,7 +266,7 @@ if extract_clicked:
         with st.spinner("Extracting fields with Gemini..."):
             try:
                 result = extract_fields_from_images(
-                    client, images, guarantee_type, None
+                    client, images, guarantee_type, DEFAULT_MODEL
                 )
             except Exception as exc:
                 result = None
@@ -443,50 +333,3 @@ if generate_clicked:
         else:
             st.subheader("\U0001f9fe Letter Preview")
             st.text_area("Letter", value=letter, height=320)
-
-        # --- Generate Word & PDF from template ---
-        st.divider()
-        st.subheader("\U0001f4e5 Download Letter (Template)")
-
-        template_data = {
-            "date": st.session_state["date"],
-            "bank_name": st.session_state["bank_name"],
-            "bank_name_ar": st.session_state.get("bank_name_ar", ""),
-            "guarantee_number": st.session_state["guarantee_number"],
-            "guarantee_date": st.session_state["guarantee_date"],
-            "amount": st.session_state["amount"],
-            "company_name": st.session_state["company_name"],
-            "company_name_ar": st.session_state.get("company_name_ar", ""),
-        }
-
-        if not os.path.exists(TEMPLATE_CONTRACT):
-            st.warning("Word template not found in Data folder.")
-        else:
-            with st.spinner("Generating Word document from template..."):
-                docx_bytes = fill_word_template(template_data)
-
-            dl_cols = st.columns(2)
-
-            with dl_cols[0]:
-                st.download_button(
-                    label="\U0001f4c4 Download Word (.docx)",
-                    data=docx_bytes,
-                    file_name="Bank_Guarantee_Letter.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                )
-
-            with dl_cols[1]:
-                with st.spinner("Converting to PDF (requires MS Word)..."):
-                    pdf_bytes = convert_docx_to_pdf(docx_bytes)
-                if pdf_bytes:
-                    st.download_button(
-                        label="\U0001f4d5 Download PDF",
-                        data=pdf_bytes,
-                        file_name="Bank_Guarantee_Letter.pdf",
-                        mime="application/pdf",
-                    )
-                else:
-                    st.info(
-                        "PDF conversion requires Microsoft Word installed. "
-                        "Download the Word file and save as PDF from Word."
-                    )
