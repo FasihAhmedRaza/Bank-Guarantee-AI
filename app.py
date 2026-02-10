@@ -19,7 +19,10 @@ st.title("\U0001f3e6 Bank Guarantee AI")
 st.write("Enter details strictly based on the Bank Guarantee document")
 
 MODELS_FALLBACK = [
-    "gemini-2.0-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-3-flash-preview"
 ]
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data")
 TEMPLATE_CONTRACT = os.path.join(TEMPLATE_DIR, "رد ضمان عقد.docx")
@@ -93,8 +96,11 @@ def extract_fields_from_images(
             types.Part.from_bytes(data=img_bytes, mime_type="image/png")
         )
 
-    for model_idx, current_model in enumerate(MODELS_FALLBACK if model_name is None else [model_name]):
-        max_retries = 2
+    models_to_try = MODELS_FALLBACK if model_name is None else [model_name]
+    last_exc = None
+
+    for model_idx, current_model in enumerate(models_to_try):
+        max_retries = 3
         for attempt in range(max_retries):
             try:
                 response = client.models.generate_content(
@@ -103,19 +109,29 @@ def extract_fields_from_images(
                 )
                 return _extract_json(response.text)
             except Exception as exc:
+                last_exc = exc
                 err_str = str(exc)
-                is_unavailable = "503" in err_str or "UNAVAILABLE" in err_str or "overloaded" in err_str.lower()
-                # Retry same model
-                if is_unavailable and attempt < max_retries - 1:
+                is_retryable = any(k in err_str for k in ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED")) or "overloaded" in err_str.lower()
+
+                if not is_retryable:
+                    raise
+
+                # Retry same model with exponential backoff
+                if attempt < max_retries - 1:
                     wait = (attempt + 1) * 3
-                    st.warning(f"{current_model} busy, retrying in {wait}s...")
+                    # st.warning(f"⏳ {current_model} — rate limited/busy, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
                     time.sleep(wait)
-                # Fallback to next model
-                elif is_unavailable and model_idx < len(MODELS_FALLBACK) - 1:
-                    st.warning(f"{current_model} unavailable, switching to {MODELS_FALLBACK[model_idx + 1]}...")
+                    continue
+
+                # All retries exhausted → fall back to next model
+                if model_idx < len(models_to_try) - 1:
+                    next_model = models_to_try[model_idx + 1]
+                    # st.warning(f"🔄 {current_model} failed after {max_retries} attempts, switching to {next_model}...")
                     break
                 else:
+                    st.error(f"All models exhausted. Last error: {err_str}")
                     raise
+
     return None
 
 
@@ -314,7 +330,7 @@ if uploaded_file:
 
     if images:
         st.caption("Previewing " + str(len(images)) + " page(s)")
-        st.image(images, use_column_width=True)
+        st.image(images, width=400)
 
         should_auto_extract = (
             auto_extract
@@ -323,7 +339,7 @@ if uploaded_file:
         )
         if should_auto_extract:
             client = genai.Client(api_key=api_key)
-            with st.spinner("Extracting fields with Gemini..."):
+            with st.spinner("Extracting fields with AI..."):
                 try:
                     result = extract_fields_from_images(
                         client, images, guarantee_type, None
@@ -361,7 +377,7 @@ st.divider()
 # --- Submit Button ---
 cols = st.columns(2)
 with cols[0]:
-    extract_clicked = st.button("Extract With Gemini")
+    extract_clicked = st.button("Extract With AI")
 with cols[1]:
     generate_clicked = st.button("Generate Letter")
 
@@ -372,7 +388,7 @@ if extract_clicked:
         st.error("Please upload a PDF or image first")
     else:
         client = genai.Client(api_key=api_key)
-        with st.spinner("Extracting fields with Gemini..."):
+        with st.spinner("Extracting fields with AI..."):
             try:
                 result = extract_fields_from_images(
                     client, images, guarantee_type, None
