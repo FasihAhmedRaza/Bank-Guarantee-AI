@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import time
+from datetime import date as _date
 from typing import List, Optional
 
 import fitz  # PyMuPDF
@@ -216,7 +217,8 @@ def _build_arabic_letter(guarantee_type, date, bank_name, guarantee_number, guar
 # ---- Word Template Fill & PDF Conversion ----
 
 def _set_cell_content(table, row_idx, col_idx, new_text):
-    """Replace cell text while preserving the first run's formatting."""
+    """Replace cell text while preserving the first run's formatting.
+    Removes extra paragraphs so they don't add blank lines / push to page 2."""
     cell = table.cell(row_idx, col_idx)
     target_para = None
     for para in cell.paragraphs:
@@ -225,9 +227,16 @@ def _set_cell_content(table, row_idx, col_idx, new_text):
             break
     if not target_para:
         return
+    # Set new text in the first run, clear all other runs
     target_para.runs[0].text = new_text
     for run in target_para.runs[1:]:
         run.text = ""
+    # Remove any extra paragraphs entirely from the cell XML
+    from docx.oxml.ns import qn
+    tc = cell._tc
+    for para in list(cell.paragraphs):
+        if para._element is not target_para._element:
+            tc.remove(para._element)
 
 
 def fill_word_template(data: dict, guarantee_type: str) -> bytes:
@@ -337,6 +346,10 @@ for key in FIELD_KEYS:
     st.session_state.setdefault(key, "")
 st.session_state.setdefault("last_extracted_hash", None)
 
+# Always set letter date to today
+if not st.session_state["date"]:
+    st.session_state["date"] = _date.today().strftime("%d/%m/%Y")
+
 images: List[Image.Image] = []
 if uploaded_file:
     _show_status("success", "File uploaded successfully")
@@ -374,7 +387,7 @@ if uploaded_file:
                     st.error("Extraction failed: " + str(exc))
 
             if result:
-                st.session_state["date"] = result.get("date") or ""
+                st.session_state["date"] = _date.today().strftime("%d/%m/%Y")
                 st.session_state["bank_name"] = result.get("bank_name") or ""
                 st.session_state["bank_name_ar"] = result.get("bank_name_ar") or ""
                 st.session_state["guarantee_number"] = result.get("guarantee_number") or ""
@@ -423,7 +436,7 @@ if extract_clicked:
                 st.error("Extraction failed: " + str(exc))
 
         if result:
-            st.session_state["date"] = result.get("date") or ""
+            st.session_state["date"] = _date.today().strftime("%d/%m/%Y")
             st.session_state["bank_name"] = result.get("bank_name") or ""
             st.session_state["bank_name_ar"] = result.get("bank_name_ar") or ""
             st.session_state["guarantee_number"] = result.get("guarantee_number") or ""
