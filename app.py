@@ -32,7 +32,8 @@ MODELS_FALLBACK = [
     "gemini-3-flash-preview"
 ]
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data")
-TEMPLATE_CONTRACT = os.path.join(TEMPLATE_DIR, "رد ضمان عقد.docx")
+TEMPLATE_PERFORMANCE = os.path.join(TEMPLATE_DIR, "performance-bond-contract-letter.docx")
+TEMPLATE_TENDER = os.path.join(TEMPLATE_DIR, "bid-bond-tender-letter.pdf.docx")
 FIELD_KEYS = [
     "date",
     "bank_name",
@@ -229,9 +230,14 @@ def _set_cell_content(table, row_idx, col_idx, new_text):
         run.text = ""
 
 
-def fill_word_template(data: dict) -> bytes:
-    """Open the Word template, inject extracted data, return .docx bytes."""
-    doc = DocxDocument(TEMPLATE_CONTRACT)
+def fill_word_template(data: dict, guarantee_type: str) -> bytes:
+    """Open the correct Word template based on guarantee type, inject data, return .docx bytes."""
+    if guarantee_type == "Performance Bond Guarantee":
+        template_path = TEMPLATE_PERFORMANCE
+    else:
+        template_path = TEMPLATE_TENDER
+
+    doc = DocxDocument(template_path)
     table = doc.tables[0]
 
     date = data.get("date", "")
@@ -243,29 +249,34 @@ def fill_word_template(data: dict) -> bytes:
     company_name = data.get("company_name", "")
     company_name_ar = data.get("company_name_ar", "") or company_name
 
-    # Row 0: Date
+    # Row 0: Date (same for both templates)
     _set_cell_content(table, 0, 0, "\u0627\u0644\u062a\u0627\u0631\u064a\u062e: " + date)
     _set_cell_content(table, 0, 1, "Date: " + date)
 
-    # Row 2: Bank name
+    # Row 2: Bank name (same for both templates)
     _set_cell_content(table, 2, 0, "\u0627\u0644\u0633\u0627\u062f\u0629/ " + bank_name_ar)
     _set_cell_content(table, 2, 1, "M/s. " + bank_name)
 
-    # Row 7: Subject / Guarantee number
-    _set_cell_content(table, 7, 0, "\u0627\u0644\u0645\u0648\u0636\u0648\u0639: \u0636\u0645\u0627\u0646 \u0628\u0646\u0643\u064a \u0631\u0642\u0645: " + guarantee_number)
-    _set_cell_content(table, 7, 1, "Subject: Bank Guarantee No. " + guarantee_number)
-
-    # Row 8: Guarantee date
-    _set_cell_content(table, 8, 0, "\u0628\u062a\u0627\u0631\u064a\u062e: " + guarantee_date)
-    _set_cell_content(table, 8, 1, "Dated: " + guarantee_date)
-
-    # Row 9: Amount
-    _set_cell_content(table, 9, 0, "\u0628\u0642\u064a\u0645\u0629: " + amount)
-    _set_cell_content(table, 9, 1, "For AED " + amount)
-
-    # Row 10: Company name
-    _set_cell_content(table, 10, 0, "\u0627\u0633\u0645 \u0627\u0644\u062c\u0647\u0629: " + company_name_ar)
-    _set_cell_content(table, 10, 1, "M/s. " + company_name)
+    if guarantee_type == "Performance Bond Guarantee":
+        # Performance Bond: rows 7, 8, 9, 10
+        _set_cell_content(table, 7, 0, "\u0627\u0644\u0645\u0648\u0636\u0648\u0639: \u0636\u0645\u0627\u0646 \u0628\u0646\u0643\u064a \u0631\u0642\u0645: " + guarantee_number)
+        _set_cell_content(table, 7, 1, "Subject: Bank Guarantee No. " + guarantee_number)
+        _set_cell_content(table, 8, 0, "\u0628\u062a\u0627\u0631\u064a\u062e: " + guarantee_date)
+        _set_cell_content(table, 8, 1, "Dated: " + guarantee_date)
+        _set_cell_content(table, 9, 0, "\u0628\u0642\u064a\u0645\u0629: " + amount)
+        _set_cell_content(table, 9, 1, "For AED " + amount)
+        _set_cell_content(table, 10, 0, "\u0627\u0633\u0645 \u0627\u0644\u062c\u0647\u0629: " + company_name_ar)
+        _set_cell_content(table, 10, 1, "M/s. " + company_name)
+    else:
+        # Tender Bond: rows 6, 7, 8, 9
+        _set_cell_content(table, 6, 0, "\u0627\u0644\u0645\u0648\u0636\u0648\u0639: \u0636\u0645\u0627\u0646 \u0628\u0646\u0643\u064a \u0631\u0642\u0645: " + guarantee_number)
+        _set_cell_content(table, 6, 1, "Subject: Bank Guarantee No. " + guarantee_number)
+        _set_cell_content(table, 7, 0, "\u0628\u062a\u0627\u0631\u064a\u062e: " + guarantee_date)
+        _set_cell_content(table, 7, 1, "Dated: " + guarantee_date)
+        _set_cell_content(table, 8, 0, "\u0628\u0642\u064a\u0645\u0629: " + amount)
+        _set_cell_content(table, 8, 1, "For AED " + amount)
+        _set_cell_content(table, 9, 0, "\u0627\u0644\u0633\u0627\u062f\u0629/ " + company_name_ar)
+        _set_cell_content(table, 9, 1, "M/s. " + company_name)
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -489,11 +500,12 @@ if generate_clicked:
             "company_name_ar": st.session_state.get("company_name_ar", ""),
         }
 
-        if not os.path.exists(TEMPLATE_CONTRACT):
+        active_template = TEMPLATE_PERFORMANCE if guarantee_type == "Performance Bond Guarantee" else TEMPLATE_TENDER
+        if not os.path.exists(active_template):
             _show_status("warning", "Word template not found in Data folder.")
         else:
             with st.spinner("Generating Word document from template..."):
-                docx_bytes = fill_word_template(template_data)
+                docx_bytes = fill_word_template(template_data, guarantee_type)
 
             dl_cols = st.columns(2)
 
