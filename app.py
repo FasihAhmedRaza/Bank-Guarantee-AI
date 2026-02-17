@@ -27,9 +27,9 @@ def _show_status(kind: str, message: str) -> None:
         getattr(st, kind)(message)
 
 MODELS_FALLBACK = [
-    "gemini-2.5-flash-lite",
-    "gemini-2.0-flash-lite",
     "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash-lite", 
     "gemini-3-flash-preview"
 ]
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data")
@@ -43,6 +43,30 @@ FIELD_KEYS = [
     "amount",
     "company_name",
 ]
+
+
+def _normalize_date(date_str: str) -> str:
+    """Convert various date formats to DD/MM/YYYY."""
+    if not date_str:
+        return date_str
+    from datetime import datetime
+    formats = [
+        "%d-%B-%Y",   # 17-February-2025
+        "%d %B %Y",   # 17 February 2025
+        "%B-%d-%Y",   # February-17-2025
+        "%B %d %Y",   # February 17 2025
+        "%d/%m/%Y",   # 17/02/2025
+        "%Y/%m/%d",   # 2025/02/17
+        "%Y-%m-%d",   # 2025-02-17
+        "%d-%m-%Y",   # 17-02-2025
+        "%m/%d/%Y",   # 02/17/2025
+    ]
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_str.strip(), fmt).strftime("%d/%m/%Y")
+        except ValueError:
+            continue
+    return date_str  # Return as-is if no format matched
 
 
 def _extract_json(text: str) -> Optional[dict]:
@@ -391,7 +415,7 @@ if uploaded_file:
                 st.session_state["bank_name"] = result.get("bank_name") or ""
                 st.session_state["bank_name_ar"] = result.get("bank_name_ar") or ""
                 st.session_state["guarantee_number"] = result.get("guarantee_number") or ""
-                st.session_state["guarantee_date"] = result.get("guarantee_date") or ""
+                st.session_state["guarantee_date"] = _normalize_date(result.get("guarantee_date") or "")
                 st.session_state["amount"] = result.get("amount") or ""
                 st.session_state["company_name"] = result.get("company_name") or ""
                 st.session_state["company_name_ar"] = result.get("company_name_ar") or ""
@@ -440,7 +464,7 @@ if extract_clicked:
             st.session_state["bank_name"] = result.get("bank_name") or ""
             st.session_state["bank_name_ar"] = result.get("bank_name_ar") or ""
             st.session_state["guarantee_number"] = result.get("guarantee_number") or ""
-            st.session_state["guarantee_date"] = result.get("guarantee_date") or ""
+            st.session_state["guarantee_date"] = _normalize_date(result.get("guarantee_date") or "")
             st.session_state["amount"] = result.get("amount") or ""
             st.session_state["company_name"] = result.get("company_name") or ""
             st.session_state["company_name_ar"] = result.get("company_name_ar") or ""
