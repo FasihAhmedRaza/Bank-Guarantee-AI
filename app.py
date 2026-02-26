@@ -46,11 +46,15 @@ FIELD_KEYS = [
 
 
 def _normalize_date(date_str: str) -> str:
-    """Convert various date formats to DD/MM/YYYY."""
+    """Convert various date formats to D/MM/YYYY (no leading zero on day)."""
     if not date_str:
         return date_str
     from datetime import datetime
     formats = [
+        "%d-%b-%y",   # 03-FEB-26
+        "%d-%b-%Y",   # 03-FEB-2026
+        "%b-%d-%y",   # FEB-03-26
+        "%b-%d-%Y",   # FEB-03-2026
         "%d-%B-%Y",   # 17-February-2025
         "%d %B %Y",   # 17 February 2025
         "%B-%d-%Y",   # February-17-2025
@@ -60,10 +64,13 @@ def _normalize_date(date_str: str) -> str:
         "%Y-%m-%d",   # 2025-02-17
         "%d-%m-%Y",   # 17-02-2025
         "%m/%d/%Y",   # 02/17/2025
+        "%d/%m/%y",   # 17/02/25
+        "%d-%m-%y",   # 17-02-25
     ]
     for fmt in formats:
         try:
-            return datetime.strptime(date_str.strip(), fmt).strftime("%d/%m/%Y")
+            dt = datetime.strptime(date_str.strip(), fmt)
+            return f"{dt.day}/{dt.strftime('%m/%Y')}"
         except ValueError:
             continue
     return date_str  # Return as-is if no format matched
@@ -372,7 +379,7 @@ st.session_state.setdefault("last_extracted_hash", None)
 
 # Always set letter date to today
 if not st.session_state["date"]:
-    st.session_state["date"] = _date.today().strftime("%d/%m/%Y")
+    st.session_state["date"] = f"{_date.today().day}/{_date.today().strftime('%m/%Y')}"
 
 images: List[Image.Image] = []
 if uploaded_file:
@@ -411,7 +418,7 @@ if uploaded_file:
                     st.error("Extraction failed: " + str(exc))
 
             if result:
-                st.session_state["date"] = _date.today().strftime("%d/%m/%Y")
+                st.session_state["date"] = f"{_date.today().day}/{_date.today().strftime('%m/%Y')}"
                 st.session_state["bank_name"] = result.get("bank_name") or ""
                 st.session_state["bank_name_ar"] = result.get("bank_name_ar") or ""
                 st.session_state["guarantee_number"] = result.get("guarantee_number") or ""
@@ -460,7 +467,7 @@ if extract_clicked:
                 st.error("Extraction failed: " + str(exc))
 
         if result:
-            st.session_state["date"] = _date.today().strftime("%d/%m/%Y")
+            st.session_state["date"] = f"{_date.today().day}/{_date.today().strftime('%m/%Y')}"
             st.session_state["bank_name"] = result.get("bank_name") or ""
             st.session_state["bank_name_ar"] = result.get("bank_name_ar") or ""
             st.session_state["guarantee_number"] = result.get("guarantee_number") or ""
